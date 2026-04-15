@@ -5,15 +5,12 @@ import { createClient } from "@supabase/supabase-js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from "recharts";
 import { format } from "date-fns";
 
-// ── Supabase (lazy — created inside component to avoid build-time init) ──
+// ── Supabase — credentials hardcoded as fallback ─────────
+const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://xflnuafbijrqhkbiukvk.supabase.co";
+const SB_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmbG51YWZiaWpycWhrYml1a3ZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyMjY5MzAsImV4cCI6MjA5MTgwMjkzMH0.fGu60r279DSrgKSNSXmSzh5GUFduKfQieBnVx_i5HwQ";
 let _supabase: ReturnType<typeof createClient> | null = null;
 function getSupabase() {
-  if (!_supabase) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !key) throw new Error(`Supabase env vars missing. URL=${url ? "ok" : "MISSING"} KEY=${key ? "ok" : "MISSING"}`);
-    _supabase = createClient(url, key);
-  }
+  if (!_supabase) _supabase = createClient(SB_URL, SB_KEY);
   return _supabase;
 }
 
@@ -83,6 +80,7 @@ export default function Dashboard() {
   const [connected,setConnected]= useState(false);
   const [loading,  setLoading]  = useState(true);
   const [time,     setTime]     = useState("");
+  const [error,    setError]    = useState<string|null>(null);
 
   const latest = readings[0] ?? null;
   const pred   = latest?.ml_predictions?.[0] ?? null;
@@ -101,9 +99,9 @@ export default function Dashboard() {
       ]).then(([{data:r},{data:a}]) => {
         if (r) { setReadings(r as Reading[]); if (r.length>0) setConnected(true); }
         if (a) setAlerts(a as Alert[]);
-      }).catch(e => console.error("Supabase fetch:", e))
+      }).catch(e => { console.error("Supabase fetch:", e); setError(String(e)); })
       .finally(() => setLoading(false));
-    } catch(e) { console.error("Supabase init:", e); setLoading(false); }
+    } catch(e) { console.error("Supabase init:", e); setError(String(e)); setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -154,6 +152,19 @@ export default function Dashboard() {
 
   const crit = alerts.filter(a=>!a.acknowledged&&a.severity==="critical").length;
   const warn = alerts.filter(a=>!a.acknowledged&&a.severity==="warning").length;
+
+  if (error) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",color:"#ef4444",fontSize:14,padding:20,textAlign:"center"}}>
+      <div style={{fontSize:24,marginBottom:12}}>⚠️ Dashboard Error</div>
+      <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:16,maxWidth:600,fontFamily:"monospace",fontSize:12,color:"#991b1b",wordBreak:"break-all"}}>
+        {error}
+      </div>
+      <div style={{marginTop:12,color:"#64748b",fontSize:12}}>
+        Check Vercel → Settings → Environment Variables<br/>
+        NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set
+      </div>
+    </div>
+  );
 
   if (loading) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"#64748b",fontSize:14}}>
