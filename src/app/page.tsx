@@ -5,11 +5,17 @@ import { createClient } from "@supabase/supabase-js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from "recharts";
 import { format } from "date-fns";
 
-// ── Supabase ──────────────────────────────────────────────
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// ── Supabase (lazy — created inside component to avoid build-time init) ──
+let _supabase: ReturnType<typeof createClient> | null = null;
+function getSupabase() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+  }
+  return _supabase;
+}
 
 // ── Types ─────────────────────────────────────────────────
 type Condition = "normal"|"bearing_fault"|"imbalance"|"overheating"|"electrical_fault";
@@ -89,8 +95,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     Promise.all([
-      supabase.from("sensor_readings").select("*,ml_predictions(condition,confidence,anomaly_score,probabilities)").order("timestamp",{ascending:false}).limit(120),
-      supabase.from("alerts").select("*").order("timestamp",{ascending:false}).limit(50)
+      getSupabase().from("sensor_readings").select("*,ml_predictions(condition,confidence,anomaly_score,probabilities)").order("timestamp",{ascending:false}).limit(120),
+      getSupabase().from("alerts").select("*").order("timestamp",{ascending:false}).limit(50)
     ]).then(([{data:r},{data:a}]) => {
       if (r) { setReadings(r as Reading[]); if (r.length>0) setConnected(true); }
       if (a) setAlerts(a as Alert[]);
@@ -98,7 +104,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    const rSub = supabase.channel("rt:readings").on("postgres_changes",
+    const rSub = getSupabase().channel("rt:readings").on("postgres_changes",
       {event:"INSERT",schema:"public",table:"sensor_readings"},
       (p: {new: unknown}) => {
         const r = p.new as Reading;
@@ -106,11 +112,11 @@ export default function Dashboard() {
         setReadings(prev => [r,...prev].slice(0,500));
         setLogs(prev => [`[${new Date(r.timestamp).toLocaleTimeString()}] ${r.device_id} T:${r.temperature.toFixed(1)}°C V:${r.vibration_rms.toFixed(2)}mm/s S:${r.sound_db.toFixed(1)}dB`,...prev].slice(0,200));
       }).subscribe();
-    const aSub = supabase.channel("rt:alerts").on("postgres_changes",
+    const aSub = getSupabase().channel("rt:alerts").on("postgres_changes",
       {event:"INSERT",schema:"public",table:"alerts"},
       (p: {new: unknown}) => setAlerts(prev => [p.new as Alert,...prev].slice(0,100))
     ).subscribe();
-    const pSub = supabase.channel("rt:preds").on("postgres_changes",
+    const pSub = getSupabase().channel("rt:preds").on("postgres_changes",
       {event:"INSERT",schema:"public",table:"ml_predictions"},
       (p: {new: unknown}) => {
         const pred = p.new as {reading_id:number;condition:Condition;confidence:number;anomaly_score:number;probabilities:Record<Condition,number>};
@@ -120,12 +126,12 @@ export default function Dashboard() {
   }, []);
 
   const ackAlert = useCallback(async (id: number) => {
-    await supabase.from("alerts").update({acknowledged:true,acknowledged_at:new Date().toISOString()}).eq("id",id);
+    await getSupabase().from("alerts").update({acknowledged:true,acknowledged_at:new Date().toISOString()}).eq("id",id);
     setAlerts(prev => prev.map(a => a.id===id ? {...a,acknowledged:true} : a));
   }, []);
 
   const exportCSV = useCallback(async () => {
-    const {data} = await supabase.from("sensor_readings").select("*,ml_predictions(condition,confidence)").order("timestamp",{ascending:true});
+    const {data} = await getSupabase().from("sensor_readings").select("*,ml_predictions(condition,confidence)").order("timestamp",{ascending:true});
     if (!data) return;
     const rows = (data as Reading[]).map(r => {
       const p = r.ml_predictions?.[0];
