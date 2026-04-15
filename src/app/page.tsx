@@ -66,11 +66,11 @@ function Sparkline({data,color,height=40}:{data:number[];color:string;height?:nu
 }
 
 // ── Main chart (SVG line chart) ───────────────────────────
-function LineChart({data,keys,colors,labels}:{data:Record<string,number>[];keys:string[];colors:string[];labels:string[]}) {
+function LineChart({data,keys,colors,labels}:{data:Record<string,number|string>[];keys:string[];colors:string[];labels:string[]}) {
   if (data.length < 2) return <div style={{height:200,display:"flex",alignItems:"center",justifyContent:"center",color:"#8a94a6",fontSize:13}}>Waiting for data...</div>;
   const W=800, H=180, PAD={t:10,r:20,b:30,l:40};
   const cW=W-PAD.l-PAD.r, cH=H-PAD.t-PAD.b;
-  const allVals = keys.flatMap(k => data.map(d => d[k]||0));
+  const allVals = keys.flatMap(k => data.map(d => Number(d[k])||0));
   const min=Math.min(...allVals), max=Math.max(...allVals)||1;
   const x=(i:number)=>PAD.l+(i/(data.length-1))*cW;
   const y=(v:number)=>PAD.t+cH-((v-min)/(max-min||1))*cH;
@@ -90,7 +90,7 @@ function LineChart({data,keys,colors,labels}:{data:Record<string,number>[];keys:
       })}
       {/* Lines */}
       {keys.map((k,ki)=>{
-        const pts=data.map((_,i)=>`${x(i)},${y(data[i][k]||0)}`).join(" ");
+        const pts=data.map((_,i)=>`${x(i)},${y(Number(data[i][k])||0)}`).join(" ");
         return <polyline key={k} points={pts} fill="none" stroke={colors[ki]} strokeWidth="2" strokeLinejoin="round"/>;
       })}
       {/* Legend */}
