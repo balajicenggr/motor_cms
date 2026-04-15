@@ -126,7 +126,7 @@ export default function Dashboard() {
   }, []);
 
   const ackAlert = useCallback(async (id: number) => {
-    await getSupabase().from("alerts").update({acknowledged:true,acknowledged_at:new Date().toISOString()}).eq("id",id);
+    await getSupabase().from("alerts").update({ acknowledged: true, acknowledged_at: new Date().toISOString() } as never).eq("id", id);
     setAlerts(prev => prev.map(a => a.id===id ? {...a,acknowledged:true} : a));
   }, []);
 
