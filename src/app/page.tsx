@@ -9,10 +9,10 @@ import { format } from "date-fns";
 let _supabase: ReturnType<typeof createClient> | null = null;
 function getSupabase() {
   if (!_supabase) {
-    _supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !key) throw new Error(`Supabase env vars missing. URL=${url ? "ok" : "MISSING"} KEY=${key ? "ok" : "MISSING"}`);
+    _supabase = createClient(url, key);
   }
   return _supabase;
 }
@@ -94,13 +94,16 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    Promise.all([
-      getSupabase().from("sensor_readings").select("*,ml_predictions(condition,confidence,anomaly_score,probabilities)").order("timestamp",{ascending:false}).limit(120),
-      getSupabase().from("alerts").select("*").order("timestamp",{ascending:false}).limit(50)
-    ]).then(([{data:r},{data:a}]) => {
-      if (r) { setReadings(r as Reading[]); if (r.length>0) setConnected(true); }
-      if (a) setAlerts(a as Alert[]);
-    }).finally(() => setLoading(false));
+    try {
+      Promise.all([
+        getSupabase().from("sensor_readings").select("*,ml_predictions(condition,confidence,anomaly_score,probabilities)").order("timestamp",{ascending:false}).limit(120),
+        getSupabase().from("alerts").select("*").order("timestamp",{ascending:false}).limit(50)
+      ]).then(([{data:r},{data:a}]) => {
+        if (r) { setReadings(r as Reading[]); if (r.length>0) setConnected(true); }
+        if (a) setAlerts(a as Alert[]);
+      }).catch(e => console.error("Supabase fetch:", e))
+      .finally(() => setLoading(false));
+    } catch(e) { console.error("Supabase init:", e); setLoading(false); }
   }, []);
 
   useEffect(() => {
