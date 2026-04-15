@@ -17,7 +17,7 @@ interface Reading {
   temperature: number; vibration_x: number; vibration_y: number;
   vibration_z: number; vibration_rms: number; sound_db: number;
   humidity: number | null;
-  ml_predictions?: { condition: Condition; confidence: number; anomaly_score: number; probabilities: Record<Condition,number> }[];
+  ml_predictions?: { condition: Condition; confidence: number; anomaly_score: number; probabilities: Record<Condition,number>; model_version?: string }[];
 }
 interface Alert {
   id: number; timestamp: string; severity: "critical"|"warning"|"info";
