@@ -20,9 +20,9 @@ export default function MLPanel({ prediction }: { prediction: MLPrediction | nul
                 <span className="w-24 text-slate-500 truncate">{k.replace(/_/g, " ")}</span>
                 <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${(v * 100).toFixed(1)}%`, background: COLORS[k] ?? "#94a3b8" }} />
+                    style={{ width: `${(Number(v) * 100).toFixed(1)}%`, background: COLORS[k] ?? "#94a3b8" }} />
                 </div>
-                <span className="w-8 text-right text-slate-400">{(v * 100).toFixed(0)}%</span>
+                <span className="w-8 text-right text-slate-400">{(Number(v) * 100).toFixed(0)}%</span>
               </div>
             ))}
             {!Object.keys(probs).length && <div className="text-slate-400 text-xs py-4 text-center">Waiting for data...</div>}
