@@ -3,68 +3,62 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-// ── Supabase ──────────────────────────────────────────────
 const SB_URL = "https://xflnuafbijrqhkbiukvk.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmbG51YWZiaWpycWhrYml1a3ZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyMjY5MzAsImV4cCI6MjA5MTgwMjkzMH0.fGu60r279DSrgKSNSXmSzh5GUFduKfQieBnVx_i5HwQ";
 const sb = createClient(SB_URL, SB_KEY);
 
-// ── Types ─────────────────────────────────────────────────
 type Cond = "normal"|"bearing_fault"|"imbalance"|"overheating"|"electrical_fault";
-interface Row {
-  id:number; device_id:string; timestamp:string;
-  temperature:number; vibration_rms:number; sound_db:number; humidity:number|null;
-  ml_predictions?:{condition:Cond;confidence:number;anomaly_score:number}[];
-}
-interface Alert {
-  id:number; timestamp:string; severity:"critical"|"warning"|"info";
-  type:string; message:string; acknowledged:boolean;
-}
+interface Row { id:number; device_id:string; timestamp:string; temperature:number; vibration_rms:number; sound_db:number; humidity:number|null; ml_predictions?:{condition:Cond;confidence:number;anomaly_score:number}[]; }
+interface Alert { id:number; timestamp:string; severity:"critical"|"warning"|"info"; type:string; message:string; acknowledged:boolean; }
 
-// ── Thresholds ────────────────────────────────────────────
-const TH = { temp:{w:70,c:85,max:120}, vib:{w:2.8,c:4.5,max:10}, snd:{w:70,c:85,max:120}, hum:{w:60,c:70,max:100} };
-function st(v:number,w:number,c:number){return v>=c?"crit":v>=w?"warn":"ok";}
-function stColor(s:string){return s==="crit"?"#ef4444":s==="warn"?"#f59e0b":"#22c55e";}
-function stBg(s:string){return s==="crit"?"rgba(239,68,68,.12)":s==="warn"?"rgba(245,158,11,.12)":"rgba(34,197,94,.12)";}
-function stLabel(s:string){return s==="crit"?"HIGH":s==="warn"?"MEDIUM":"NORMAL";}
+const TH = { temp:{w:70,c:85}, vib:{w:2.8,c:4.5}, snd:{w:70,c:85}, hum:{w:60,c:70} };
+const st = (v:number,w:number,c:number) => v>=c?"crit":v>=w?"warn":"ok";
+const stC = (s:string) => s==="crit"?"#ef4444":s==="warn"?"#f59e0b":"#22c55e";
+const stBg = (s:string) => s==="crit"?"rgba(239,68,68,.12)":s==="warn"?"rgba(245,158,11,.12)":"rgba(34,197,94,.12)";
+const stL = (s:string) => s==="crit"?"HIGH":s==="warn"?"MEDIUM":"NORMAL";
+const avg = (a:number[]) => a.length?(a.reduce((x,y)=>x+y,0)/a.length).toFixed(1):"—";
 
-// ── Design tokens ─────────────────────────────────────────
-const D = {
-  sidebar:"#0f172a", sidebarHover:"#1e293b", sidebarActive:"#1d4ed8",
-  bg:"#f8fafc", card:"#ffffff", border:"#e2e8f0",
-  text:"#0f172a", muted:"#64748b", muted2:"#94a3b8",
-  blue:"#2563eb", purple:"#7c3aed", green:"#16a34a", orange:"#ea580c",
-};
-
-// ── Nav pages ─────────────────────────────────────────────
-const PAGES = [
-  {id:"home",    icon:"⊞", label:"Overview"},
-  {id:"live",    icon:"◉", label:"Live Data"},
-  {id:"analytics",icon:"↗",label:"Analytics"},
-  {id:"alerts",  icon:"⚠", label:"Alerts"},
-  {id:"devices", icon:"◈", label:"Devices"},
-  {id:"settings",icon:"⚙", label:"Settings"},
+const NAV = [
+  {id:"home",icon:"▦",label:"Dashboard",section:"PAGES"},
+  {id:"analytics",icon:"↗",label:"Analytics",section:"PAGES"},
+  {id:"live",icon:"◉",label:"Live Data",section:"PAGES"},
+  {id:"alerts",icon:"⚠",label:"Alerts",section:"PAGES"},
+  {id:"devices",icon:"◈",label:"Devices",section:"TOOLS & COMPONENTS"},
+  {id:"settings",icon:"⚙",label:"Settings",section:"TOOLS & COMPONENTS"},
 ];
 
-// ── Stat Card ─────────────────────────────────────────────
-function StatCard({icon,label,value,unit,status,sub,pulse}:{icon:string;label:string;value:string;unit?:string;status?:string;sub?:string;pulse?:boolean}) {
-  const s = status||"ok";
+// ── SVG Bar Chart ─────────────────────────────────────────
+function BarChart({data,color="#3b7ddd",labels}:{data:number[];color?:string;labels?:string[]}) {
+  if(!data.length) return <div style={{height:120,display:"flex",alignItems:"center",justifyContent:"center",color:"#94a3b8",fontSize:12}}>No data</div>;
+  const mx=Math.max(...data)||1;
   return (
-    <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"20px 22px",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:0,right:0,width:80,height:80,borderRadius:"0 12px 0 80px",background:stBg(s),opacity:.6}}/>
-      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12}}>
-        <div style={{width:40,height:40,borderRadius:10,background:stBg(s),display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{icon}</div>
-        <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:20,background:stBg(s),color:stColor(s)}}>{stLabel(s)}</span>
-      </div>
-      <div style={{fontSize:11,color:D.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:.6,marginBottom:4}}>{label}</div>
-      <div style={{display:"flex",alignItems:"baseline",gap:4}}>
-        <span style={{fontSize:26,fontWeight:800,color:D.text,lineHeight:1}}>{value}</span>
-        {unit&&<span style={{fontSize:13,color:D.muted}}>{unit}</span>}
-      </div>
-      {sub&&<div style={{fontSize:11,color:D.muted2,marginTop:4}}>{sub}</div>}
-      {pulse&&<div style={{position:"absolute",bottom:12,right:12,display:"flex",alignItems:"center",gap:4,fontSize:10,color:"#22c55e"}}>
-        <span style={{width:6,height:6,borderRadius:"50%",background:"#22c55e",display:"inline-block",animation:"pulse 1.5s infinite"}}/>LIVE
-      </div>}
+    <div style={{display:"flex",alignItems:"flex-end",gap:3,height:110,padding:"0 2px"}}>
+      {data.map((v,i)=>(
+        <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+          <div style={{width:"100%",background:color,borderRadius:"3px 3px 0 0",height:`${(v/mx)*96}px`,minHeight:2,opacity:.85}}/>
+          {labels&&<span style={{fontSize:8,color:"#94a3b8",whiteSpace:"nowrap"}}>{labels[i]}</span>}
+        </div>
+      ))}
     </div>
+  );
+}
+
+// ── SVG Donut Chart ───────────────────────────────────────
+function Donut({slices,size=120}:{slices:{value:number;color:string;label:string}[];size?:number}) {
+  const total=slices.reduce((a,s)=>a+s.value,0)||1;
+  const r=46,cx=60,cy=60,circ=2*Math.PI*r;
+  let offset=0;
+  return (
+    <svg width={size} height={size} viewBox="0 0 120 120">
+      {slices.map((s,i)=>{
+        const dash=(s.value/total)*circ;
+        const el=<circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth="14" strokeDasharray={`${dash} ${circ-dash}`} strokeDashoffset={-offset} style={{transform:"rotate(-90deg)",transformOrigin:"60px 60px"}}/>;
+        offset+=dash;
+        return el;
+      })}
+      <text x="60" y="56" textAnchor="middle" fontSize="16" fontWeight="800" fill="#0f172a">{total}</text>
+      <text x="60" y="70" textAnchor="middle" fontSize="9" fill="#64748b">readings</text>
+    </svg>
   );
 }
 
@@ -73,555 +67,473 @@ function Spark({data,color,h=36}:{data:number[];color:string;h?:number}) {
   if(data.length<2) return <div style={{height:h}}/>;
   const W=120,mn=Math.min(...data),mx=Math.max(...data),r=mx-mn||1;
   const pts=data.map((v,i)=>`${(i/(data.length-1))*W},${h-((v-mn)/r)*(h-4)-2}`).join(" ");
-  return <svg width="100%" height={h} viewBox={`0 0 ${W} ${h}`} preserveAspectRatio="none" style={{display:"block"}}>
-    <defs><linearGradient id={`g${color.replace("#","")}`} x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stopColor={color} stopOpacity=".3"/>
-      <stop offset="100%" stopColor={color} stopOpacity="0"/>
-    </linearGradient></defs>
-    <polygon points={`0,${h} ${pts} ${W},${h}`} fill={`url(#g${color.replace("#","")})`}/>
-    <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round"/>
-  </svg>;
+  return (
+    <svg width="100%" height={h} viewBox={`0 0 ${W} ${h}`} preserveAspectRatio="none" style={{display:"block"}}>
+      <defs><linearGradient id={`sg${color.replace(/[^a-z0-9]/gi,"")}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity=".3"/><stop offset="100%" stopColor={color} stopOpacity="0"/></linearGradient></defs>
+      <polygon points={`0,${h} ${pts} ${W},${h}`} fill={`url(#sg${color.replace(/[^a-z0-9]/gi,"")})`}/>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round"/>
+    </svg>
+  );
 }
 
-// ── SVG Bar Chart ─────────────────────────────────────────
-function BarChart({data,color,labels}:{data:number[];color:string;labels?:string[]}) {
-  if(!data.length) return <div style={{height:120,display:"flex",alignItems:"center",justifyContent:"center",color:D.muted2,fontSize:12}}>No data</div>;
-  const mx=Math.max(...data)||1;
-  return <div style={{display:"flex",alignItems:"flex-end",gap:4,height:100,padding:"0 4px"}}>
-    {data.map((v,i)=>(
-      <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-        <div style={{width:"100%",background:color,borderRadius:"3px 3px 0 0",height:`${(v/mx)*88}px`,minHeight:2,opacity:.85,transition:"height .3s"}}/>
-        {labels&&<span style={{fontSize:8,color:D.muted2,whiteSpace:"nowrap"}}>{labels[i]}</span>}
+// ── Metric Card (AppStack style) ──────────────────────────
+function MetricCard({icon,label,value,unit,iconBg,trend,sub}:{icon:string;label:string;value:string;unit?:string;iconBg:string;trend?:string;sub?:string}) {
+  const up=trend?.startsWith("+");
+  return (
+    <div style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"20px 22px",display:"flex",alignItems:"center",gap:16}}>
+      <div style={{width:48,height:48,borderRadius:"50%",background:iconBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{icon}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:11,color:"#6c757d",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>{label}</div>
+        <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+          <span style={{fontSize:24,fontWeight:700,color:"#212529",lineHeight:1}}>{value}</span>
+          {unit&&<span style={{fontSize:12,color:"#6c757d"}}>{unit}</span>}
+        </div>
+        {(trend||sub)&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
+          {trend&&<span style={{fontSize:11,fontWeight:600,color:up?"#28a745":"#dc3545"}}>{trend}</span>}
+          {sub&&<span style={{fontSize:11,color:"#adb5bd"}}>{sub}</span>}
+        </div>}
       </div>
-    ))}
-  </div>;
+    </div>
+  );
 }
 
-// ── SVG Line Chart (multi) ────────────────────────────────
-function LineChart({series,h=160}:{series:{data:number[];color:string;label:string}[];h?:number}) {
-  const allVals=series.flatMap(s=>s.data);
-  if(allVals.length<2) return <div style={{height:h,display:"flex",alignItems:"center",justifyContent:"center",color:D.muted2,fontSize:12}}>Waiting for data...</div>;
-  const W=600,mn=Math.min(...allVals),mx=Math.max(...allVals),r=mx-mn||1;
-  const x=(i:number,len:number)=>len<2?W/2:(i/(len-1))*W;
-  const y=(v:number)=>h-((v-mn)/r)*(h-8)-4;
-  return <svg width="100%" viewBox={`0 0 ${W} ${h}`} style={{overflow:"visible"}}>
-    {[0,1,2,3,4].map(i=>{
-      const yv=4+(i/4)*(h-8);
-      return <line key={i} x1={0} y1={yv} x2={W} y2={yv} stroke="#f1f5f9" strokeWidth="1"/>;
-    })}
-    {series.map((s,si)=>{
-      if(s.data.length<2) return null;
-      const pts=s.data.map((v,i)=>`${x(i,s.data.length)},${y(v)}`).join(" ");
-      const poly=`0,${h} ${pts} ${x(s.data.length-1,s.data.length)},${h}`;
-      return <g key={si}>
-        <defs><linearGradient id={`lg${si}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={s.color} stopOpacity=".2"/>
-          <stop offset="100%" stopColor={s.color} stopOpacity="0"/>
-        </linearGradient></defs>
-        <polygon points={poly} fill={`url(#lg${si})`}/>
-        <polyline points={pts} fill="none" stroke={s.color} strokeWidth="2.5" strokeLinejoin="round"/>
-      </g>;
-    })}
-  </svg>;
-}
-
-// ── Main Dashboard ────────────────────────────────────────
+// ── Main Component ────────────────────────────────────────
 export default function Dashboard() {
-  const [rows,      setRows]      = useState<Row[]>([]);
-  const [alerts,    setAlerts]    = useState<Alert[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [loading,   setLoading]   = useState(true);
-  const [page,      setPage]      = useState("home");
-  const [time,      setTime]      = useState("");
-  const [filter,    setFilter]    = useState("1h");
+  const [rows,setRows]=useState<Row[]>([]);
+  const [alerts,setAlerts]=useState<Alert[]>([]);
+  const [connected,setConnected]=useState(false);
+  const [loading,setLoading]=useState(true);
+  const [page,setPage]=useState("home");
+  const [time,setTime]=useState("");
+  const [feedCount,setFeedCount]=useState(5);
 
-  const latest = rows[0] ?? null;
-  const pred   = latest?.ml_predictions?.[0] ?? null;
+  const latest=rows[0]??null;
+  const pred=latest?.ml_predictions?.[0]??null;
 
-  // Clock
-  useEffect(() => {
-    const t = setInterval(() => setTime(new Date().toLocaleString()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  useEffect(()=>{const t=setInterval(()=>setTime(new Date().toLocaleTimeString()),1000);return()=>clearInterval(t);},[]);
 
-  // Load data
-  useEffect(() => {
+  useEffect(()=>{
     Promise.all([
       sb.from("sensor_readings").select("id,device_id,timestamp,temperature,vibration_rms,sound_db,humidity,ml_predictions(condition,confidence,anomaly_score)").order("timestamp",{ascending:false}).limit(120),
       sb.from("alerts").select("*").order("timestamp",{ascending:false}).limit(50)
-    ]).then(([{data:r},{data:a}]) => {
+    ]).then(([{data:r},{data:a}])=>{
       if(r){setRows(r as Row[]);if(r.length>0)setConnected(true);}
       if(a)setAlerts(a as Alert[]);
     }).catch(console.error).finally(()=>setLoading(false));
-  }, []);
+  },[]);
 
-  // Realtime
-  useEffect(() => {
-    const c1=sb.channel("rt-r").on("postgres_changes",{event:"INSERT",schema:"public",table:"sensor_readings"},({new:n})=>{
-      setConnected(true);setRows(p=>[n as Row,...p].slice(0,500));
-    }).subscribe();
-    const c2=sb.channel("rt-a").on("postgres_changes",{event:"INSERT",schema:"public",table:"alerts"},({new:n})=>{
-      setAlerts(p=>[n as Alert,...p].slice(0,100));
-    }).subscribe();
-    const c3=sb.channel("rt-p").on("postgres_changes",{event:"INSERT",schema:"public",table:"ml_predictions"},({new:n})=>{
-      const p=n as {reading_id:number;condition:Cond;confidence:number;anomaly_score:number};
-      setRows(prev=>prev.map(r=>r.id===p.reading_id?{...r,ml_predictions:[p,...(r.ml_predictions??[])]}:r));
-    }).subscribe();
-    return ()=>{c1.unsubscribe();c2.unsubscribe();c3.unsubscribe();};
-  }, []);
+  useEffect(()=>{
+    const c1=sb.channel("rt-r").on("postgres_changes",{event:"INSERT",schema:"public",table:"sensor_readings"},({new:n})=>{setConnected(true);setRows(p=>[n as Row,...p].slice(0,500));}).subscribe();
+    const c2=sb.channel("rt-a").on("postgres_changes",{event:"INSERT",schema:"public",table:"alerts"},({new:n})=>{setAlerts(p=>[n as Alert,...p].slice(0,100));}).subscribe();
+    return()=>{c1.unsubscribe();c2.unsubscribe();};
+  },[]);
 
-  const ackAlert = useCallback(async(id:number)=>{
+  const ackAlert=useCallback(async(id:number)=>{
     await sb.from("alerts").update({acknowledged:true} as never).eq("id",id);
     setAlerts(p=>p.map(a=>a.id===id?{...a,acknowledged:true}:a));
   },[]);
 
-  const exportCSV = useCallback(async()=>{
-    const {data}=await sb.from("sensor_readings").select("*,ml_predictions(condition,confidence)").order("timestamp",{ascending:true});
-    if(!data)return;
-    const csv=["id,timestamp,device_id,temperature,vibration_rms,sound_db,humidity,condition,confidence",
-      ...(data as Row[]).map(r=>{const p=r.ml_predictions?.[0];return `${r.id},${r.timestamp},${r.device_id},${r.temperature},${r.vibration_rms},${r.sound_db},${r.humidity??""},${p?.condition??""},${p?.confidence??""}`;})]
-      .join("\n");
-    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`motor_${Date.now()}.csv`;a.click();
-  },[]);
-
-  // Computed
   const temps=useMemo(()=>rows.map(r=>r.temperature).reverse(),[rows]);
-  const vibs =useMemo(()=>rows.map(r=>r.vibration_rms).reverse(),[rows]);
-  const snds =useMemo(()=>rows.map(r=>r.sound_db).reverse(),[rows]);
-  const hums =useMemo(()=>rows.filter(r=>r.humidity!=null).map(r=>r.humidity as number).reverse(),[rows]);
-  const avg=(a:number[])=>a.length?(a.reduce((x,y)=>x+y,0)/a.length).toFixed(1):"—";
-  const mx=(a:number[])=>a.length?Math.max(...a).toFixed(1):"—";
-  const faults=rows.filter(r=>r.ml_predictions?.[0]?.condition!=="normal").length;
+  const vibs=useMemo(()=>rows.map(r=>r.vibration_rms).reverse(),[rows]);
+  const snds=useMemo(()=>rows.map(r=>r.sound_db).reverse(),[rows]);
   const crit=alerts.filter(a=>!a.acknowledged&&a.severity==="critical").length;
   const warn=alerts.filter(a=>!a.acknowledged&&a.severity==="warning").length;
   const devices=[...new Set(rows.map(r=>r.device_id))];
+  const faults=rows.filter(r=>r.ml_predictions?.[0]?.condition!=="normal").length;
+  const normal=rows.length-faults;
 
-  // Filter rows by time
-  const filteredRows=useMemo(()=>{
-    const now=Date.now();
-    const ms=filter==="1h"?3600000:filter==="24h"?86400000:filter==="7d"?604800000:Infinity;
-    return rows.filter(r=>now-new Date(r.timestamp).getTime()<ms);
-  },[rows,filter]);
+  // Bar chart: last 12 readings grouped by hour buckets
+  const barData=useMemo(()=>{
+    const buckets:number[]=Array(12).fill(0);
+    const labels:string[]=Array(12).fill("").map((_,i)=>`${i*2}h`);
+    rows.slice(0,120).forEach(r=>{
+      const h=new Date(r.timestamp).getHours();
+      const b=Math.floor(h/2);
+      if(b<12)buckets[b]=Math.max(buckets[b],r.vibration_rms);
+    });
+    return{buckets,labels};
+  },[rows]);
 
-  if(loading) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:D.bg,fontFamily:"system-ui"}}>
-      <div style={{textAlign:"center"}}>
-        <div style={{fontSize:32,marginBottom:12}}>⚙️</div>
-        <div style={{color:D.muted,fontSize:14}}>Loading Motor CMS...</div>
+  if(loading) return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#f4f7f9",fontFamily:"system-ui"}}>
+      <div style={{textAlign:"center",color:"#6c757d"}}>
+        <div style={{fontSize:36,marginBottom:12}}>⚙️</div>
+        <div style={{fontSize:14}}>Loading Motor CMS...</div>
       </div>
     </div>
   );
 
-  const curPage = PAGES.find(p=>p.id===page);
+  // Sidebar sections
+  const sections=["PAGES","TOOLS & COMPONENTS"];
 
-  return (
-    <div style={{display:"flex",height:"100vh",overflow:"hidden",fontFamily:"'Segoe UI',system-ui,sans-serif",fontSize:13,color:D.text}}>
-      <style>{`
-        @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        ::-webkit-scrollbar{width:4px;height:4px}
-        ::-webkit-scrollbar-track{background:transparent}
-        ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:2px}
-        button{font-family:inherit}
-      `}</style>
+  return(
+    <div style={{display:"flex",height:"100vh",overflow:"hidden",fontFamily:"'Segoe UI',system-ui,sans-serif",fontSize:13,color:"#212529"}}>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:2px} button{font-family:inherit;cursor:pointer}`}</style>
 
       {/* ── SIDEBAR ── */}
-      <aside style={{width:220,background:D.sidebar,display:"flex",flexDirection:"column",flexShrink:0,height:"100vh",overflowY:"auto"}}>
-        {/* Logo */}
-        <div style={{padding:"24px 20px 20px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
+      <aside style={{width:230,background:"#1a2035",display:"flex",flexDirection:"column",flexShrink:0,height:"100vh",overflowY:"auto"}}>
+        <div style={{padding:"22px 20px 18px",borderBottom:"1px solid rgba(255,255,255,.07)"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>⚙️</div>
+            <div style={{width:38,height:38,borderRadius:10,background:"linear-gradient(135deg,#3b7ddd,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>⚙️</div>
             <div>
               <div style={{fontWeight:800,fontSize:14,color:"#fff",letterSpacing:.3}}>Motor CMS</div>
-              <div style={{fontSize:10,color:"rgba(255,255,255,.4)"}}>IoT Dashboard</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,.35)"}}>IoT Dashboard</div>
             </div>
           </div>
         </div>
-
-        {/* Status */}
-        <div style={{padding:"14px 20px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,background:"rgba(255,255,255,.04)"}}>
-            <span style={{width:8,height:8,borderRadius:"50%",background:connected?"#22c55e":"#f59e0b",display:"inline-block",flexShrink:0,animation:connected?"pulse 1.5s infinite":"none"}}/>
-            <div>
-              <div style={{fontSize:11,fontWeight:600,color:connected?"#22c55e":"#f59e0b"}}>{connected?"MQTT Active":"Waiting..."}</div>
-              <div style={{fontSize:9,color:"rgba(255,255,255,.3)",marginTop:1}}>{latest?.device_id||"No device"}</div>
+        <nav style={{padding:"8px 12px",flex:1}}>
+          {sections.map(sec=>(
+            <div key={sec}>
+              <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.25)",textTransform:"uppercase",letterSpacing:1.2,padding:"14px 8px 5px"}}>{sec}</div>
+              {NAV.filter(n=>n.section===sec).map(n=>(
+                <button key={n.id} onClick={()=>setPage(n.id)} style={{
+                  width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+                  border:"none",borderRadius:6,textAlign:"left",marginBottom:1,
+                  background:page===n.id?"#3b7ddd":"transparent",
+                  color:page===n.id?"#fff":"rgba(255,255,255,.55)",
+                  fontWeight:page===n.id?600:400,fontSize:13,transition:"background .15s",
+                }}>
+                  <span style={{fontSize:15,width:18,textAlign:"center",flexShrink:0}}>{n.icon}</span>
+                  {n.label}
+                  {n.id==="alerts"&&(crit+warn)>0&&<span style={{marginLeft:"auto",fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:10,background:"#ef4444",color:"#fff"}}>{crit+warn}</span>}
+                </button>
+              ))}
             </div>
-          </div>
-        </div>
-
-        {/* Nav */}
-        <nav style={{padding:"10px 12px",flex:1}}>
-          <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.25)",textTransform:"uppercase",letterSpacing:1.2,padding:"8px 8px 4px"}}>MAIN MENU</div>
-          {PAGES.map(p=>(
-            <button key={p.id} onClick={()=>setPage(p.id)} style={{
-              width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-              border:"none",borderRadius:8,cursor:"pointer",textAlign:"left",marginBottom:2,
-              background:page===p.id?"rgba(37,99,235,.25)":"transparent",
-              color:page===p.id?"#60a5fa":"rgba(255,255,255,.55)",
-              fontWeight:page===p.id?600:400,fontSize:13,transition:"all .15s",
-              borderLeft:page===p.id?"2px solid #3b82f6":"2px solid transparent",
-            }}>
-              <span style={{fontSize:16,width:20,textAlign:"center"}}>{p.icon}</span>
-              {p.label}
-              {p.id==="alerts"&&(crit+warn)>0&&<span style={{marginLeft:"auto",fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:10,background:"#ef4444",color:"#fff"}}>{crit+warn}</span>}
-            </button>
           ))}
         </nav>
-
-        {/* Bottom */}
-        <div style={{padding:"12px 20px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          <button onClick={exportCSV} style={{width:"100%",padding:"9px 0",borderRadius:8,border:"1px solid rgba(255,255,255,.1)",background:"rgba(255,255,255,.05)",color:"rgba(255,255,255,.6)",cursor:"pointer",fontSize:12,fontWeight:500}}>
-            ⬇ Export CSV
-          </button>
+        <div style={{padding:"14px 16px",borderTop:"1px solid rgba(255,255,255,.07)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:6,background:"rgba(255,255,255,.05)"}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:connected?"#22c55e":"#f59e0b",display:"inline-block",flexShrink:0,animation:connected?"pulse 1.5s infinite":"none"}}/>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:connected?"#22c55e":"#f59e0b"}}>{connected?"Connected":"Waiting..."}</div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,.3)"}}>{latest?.device_id||"No device"}</div>
+            </div>
+          </div>
         </div>
       </aside>
 
       {/* ── MAIN ── */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:D.bg}}>
-
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"#f4f7f9"}}>
         {/* Topbar */}
-        <header style={{background:D.card,borderBottom:`1px solid ${D.border}`,padding:"0 28px",height:60,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div>
-              <div style={{fontSize:18,fontWeight:700,color:D.text}}>{curPage?.label}</div>
-              <div style={{fontSize:11,color:D.muted2}}>{time}</div>
-            </div>
+        <header style={{background:"#fff",borderBottom:"1px solid #dee2e6",padding:"0 28px",height:58,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,boxShadow:"0 1px 3px rgba(0,0,0,.05)"}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:"#212529"}}>{NAV.find(n=>n.id===page)?.label}</div>
+            <div style={{fontSize:11,color:"#adb5bd"}}>{time} · {rows.length} readings</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {crit>0&&<span style={{padding:"4px 12px",borderRadius:20,background:"#fef2f2",color:"#dc2626",fontSize:11,fontWeight:700,border:"1px solid #fecaca"}}>🚨 {crit} Critical</span>}
             {warn>0&&<span style={{padding:"4px 12px",borderRadius:20,background:"#fffbeb",color:"#d97706",fontSize:11,fontWeight:700,border:"1px solid #fde68a"}}>⚠ {warn} Warning</span>}
             {crit===0&&warn===0&&<span style={{padding:"4px 12px",borderRadius:20,background:"#f0fdf4",color:"#16a34a",fontSize:11,fontWeight:700,border:"1px solid #bbf7d0"}}>✓ All Clear</span>}
-            <div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>M</div>
+            <div style={{width:34,height:34,borderRadius:"50%",background:"linear-gradient(135deg,#3b7ddd,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>M</div>
           </div>
         </header>
 
-        {/* Content */}
         <main style={{flex:1,overflowY:"auto",padding:"24px 28px"}}>
 
-          {/* ══════════ HOME ══════════ */}
+          {/* ══ DASHBOARD ══ */}
           {page==="home"&&(<>
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:15,fontWeight:700,color:D.text,marginBottom:4}}>System Overview</div>
-              <div style={{fontSize:12,color:D.muted}}>Real-time induction motor condition monitoring · Last updated: {latest?.timestamp?.slice(11,19)||"—"}</div>
+            {/* Welcome banner */}
+            <div style={{background:"linear-gradient(135deg,#3b7ddd 0%,#1a56db 60%,#7c3aed 100%)",borderRadius:10,padding:"24px 28px",marginBottom:22,color:"#fff",display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 4px 16px rgba(59,125,221,.35)"}}>
+              <div>
+                <div style={{fontSize:20,fontWeight:800,marginBottom:4}}>Welcome Back, Motor CMS! 👋</div>
+                <div style={{fontSize:13,opacity:.85}}>Real-time induction motor condition monitoring · {devices.length} device{devices.length!==1?"s":""} online</div>
+              </div>
+              <div style={{textAlign:"right",opacity:.9}}>
+                <div style={{fontSize:28,fontWeight:800}}>{rows.length}</div>
+                <div style={{fontSize:11}}>Total Readings</div>
+              </div>
             </div>
-            {/* Stat cards */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20}}>
-              <StatCard icon="🌡️" label="Temperature" value={latest?.temperature?.toFixed(1)??"—"} unit="°C" status={latest?st(latest.temperature,TH.temp.w,TH.temp.c):undefined} sub={`Avg ${avg(temps)}°C · Max ${mx(temps)}°C`} pulse={connected}/>
-              <StatCard icon="📳" label="Vibration RMS" value={latest?.vibration_rms?.toFixed(2)??"—"} unit="mm/s" status={latest?st(latest.vibration_rms,TH.vib.w,TH.vib.c):undefined} sub={`Avg ${avg(vibs)} · Max ${mx(vibs)} mm/s`}/>
-              <StatCard icon="🔊" label="Sound Level" value={latest?.sound_db?.toFixed(1)??"—"} unit="dB" status={latest?st(latest.sound_db,TH.snd.w,TH.snd.c):undefined} sub={`Avg ${avg(snds)} dB`}/>
-              <StatCard icon="🌧️" label="Humidity" value={latest?.humidity!=null?latest.humidity.toFixed(1):"N/A"} unit={latest?.humidity!=null?"%RH":""} status={latest?.humidity!=null?st(latest.humidity,TH.hum.w,TH.hum.c):undefined} sub={`Avg ${avg(hums)}%RH`}/>
+
+            {/* Metric cards row */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:22}}>
+              <MetricCard icon="🌡️" label="Temperature" value={latest?.temperature?.toFixed(1)??"—"} unit="°C" iconBg="rgba(59,125,221,.15)" trend={latest?`${latest.temperature>70?"+":"-"}${Math.abs(latest.temperature-65).toFixed(1)}°`:undefined} sub="vs avg"/>
+              <MetricCard icon="📳" label="Vibration RMS" value={latest?.vibration_rms?.toFixed(2)??"—"} unit="mm/s" iconBg="rgba(40,167,69,.15)" trend={latest?`${latest.vibration_rms>2.8?"+":"-"}${Math.abs(latest.vibration_rms-2).toFixed(2)}`:undefined} sub="vs threshold"/>
+              <MetricCard icon="🔊" label="Sound Level" value={latest?.sound_db?.toFixed(1)??"—"} unit="dB" iconBg="rgba(253,126,20,.15)" trend={latest?`${latest.sound_db>70?"+":"-"}${Math.abs(latest.sound_db-65).toFixed(1)}dB`:undefined} sub="vs baseline"/>
+              <MetricCard icon="🤖" label="ML Status" value={pred?.condition?.replace(/_/g," ").split(" ").map((w:string)=>w[0].toUpperCase()+w.slice(1)).join(" ")??"Normal"} iconBg="rgba(124,58,237,.15)" trend={pred?`${(pred.confidence*100).toFixed(0)}% conf`:undefined} sub="latest prediction"/>
             </div>
-            {/* Second row */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20}}>
-              <StatCard icon="📡" label="Devices Online" value={devices.length.toString()} sub={devices.join(", ")||"None"} status={connected?"ok":"warn"}/>
-              <StatCard icon="📊" label="Total Readings" value={rows.length.toString()} sub="All time" status="ok"/>
-              <StatCard icon="⚠️" label="Active Alerts" value={(crit+warn).toString()} sub={`${crit} critical · ${warn} warning`} status={crit>0?"crit":warn>0?"warn":"ok"}/>
-              <StatCard icon="🤖" label="ML Condition" value={pred?.condition?.replace(/_/g," ").toUpperCase()??"—"} sub={pred?`${(pred.confidence*100).toFixed(0)}% confidence`:undefined} status={pred?.condition==="normal"?"ok":pred?.condition?"crit":undefined}/>
-            </div>
-            {/* Charts row */}
-            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:16,marginBottom:16}}>
-              <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"20px 24px"}}>
+
+            {/* Row 2: Bar chart + Activity feed */}
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:18,marginBottom:18}}>
+              {/* Sensor Trends bar chart */}
+              <div style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"20px 22px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-                  <div style={{fontSize:14,fontWeight:700}}>Sensor Trends</div>
-                  <div style={{display:"flex",gap:12,fontSize:11,color:D.muted}}>
-                    {[["#f59e0b","Temp"],["#3b82f6","Vib"],["#8b5cf6","Sound"]].map(([c,l])=>(
-                      <span key={l} style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:2,background:c,display:"inline-block",borderRadius:1}}/>{l}</span>
+                  <div style={{fontSize:14,fontWeight:700,color:"#212529"}}>Sensor Trends</div>
+                  <div style={{display:"flex",gap:14,fontSize:11,color:"#6c757d"}}>
+                    {[["#3b7ddd","Vibration"],["#f59e0b","Temperature"],["#28a745","Sound"]].map(([c,l])=>(
+                      <span key={l} style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:3,background:c,display:"inline-block",borderRadius:2}}/>{l}</span>
                     ))}
                   </div>
                 </div>
-                <LineChart series={[{data:temps.slice(-40),color:"#f59e0b",label:"Temp"},{data:vibs.slice(-40),color:"#3b82f6",label:"Vib"},{data:snds.slice(-40),color:"#8b5cf6",label:"Sound"}]} h={140}/>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {[{l:"Temperature",d:temps,c:"#f59e0b",v:latest?.temperature?.toFixed(1)??"—",u:"°C"},{l:"Vibration",d:vibs,c:"#3b82f6",v:latest?.vibration_rms?.toFixed(2)??"—",u:"mm/s"},{l:"Sound",d:snds,c:"#8b5cf6",v:latest?.sound_db?.toFixed(1)??"—",u:"dB"}].map(({l,d,c,v,u})=>(
-                  <div key={l} style={{background:D.card,borderRadius:10,border:`1px solid ${D.border}`,padding:"12px 16px",flex:1}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                      <span style={{fontSize:10,fontWeight:700,color:D.muted,textTransform:"uppercase",letterSpacing:.5}}>{l}</span>
-                      <span style={{fontSize:16,fontWeight:800,color:D.text}}>{v}<span style={{fontSize:10,color:D.muted,marginLeft:2}}>{u}</span></span>
+                <BarChart data={barData.buckets} color="#3b7ddd" labels={barData.labels}/>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginTop:14}}>
+                  {[{l:"Avg Temp",v:`${avg(temps)}°C`,c:"#3b7ddd"},{l:"Avg Vibration",v:`${avg(vibs)} mm/s`,c:"#28a745"},{l:"Avg Sound",v:`${avg(snds)} dB`,c:"#f59e0b"}].map(({l,v,c})=>(
+                    <div key={l} style={{textAlign:"center",padding:"8px",borderRadius:6,background:"#f8f9fa"}}>
+                      <div style={{fontSize:14,fontWeight:700,color:c}}>{v}</div>
+                      <div style={{fontSize:10,color:"#adb5bd",marginTop:2}}>{l}</div>
                     </div>
-                    <Spark data={d.slice(-20)} color={c} h={28}/>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              </div>
+
+              {/* Daily Feed / Recent Activity */}
+              <div style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"20px 22px",display:"flex",flexDirection:"column"}}>
+                <div style={{fontSize:14,fontWeight:700,color:"#212529",marginBottom:14}}>Daily Feed</div>
+                <div style={{flex:1,overflowY:"auto"}}>
+                  {rows.slice(0,feedCount).map((r,i)=>{
+                    const p=r.ml_predictions?.[0];
+                    const s=st(r.vibration_rms,TH.vib.w,TH.vib.c);
+                    const colors=["#3b7ddd","#28a745","#f59e0b","#dc3545","#7c3aed"];
+                    return(
+                      <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:"1px solid #f1f5f9"}}>
+                        <div style={{width:34,height:34,borderRadius:"50%",background:colors[i%5],display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:700,flexShrink:0}}>{r.device_id?.slice(0,2).toUpperCase()||"M"}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:600,color:"#212529"}}>{r.device_id}</div>
+                          <div style={{fontSize:11,color:"#6c757d",marginTop:1}}>T:{r.temperature?.toFixed(1)}°C V:{r.vibration_rms?.toFixed(2)} S:{r.sound_db?.toFixed(1)}dB</div>
+                          {p&&<span style={{fontSize:10,fontWeight:600,color:p.condition==="normal"?"#28a745":"#dc3545"}}>{p.condition.replace(/_/g," ")}</span>}
+                        </div>
+                        <div style={{fontSize:10,color:"#adb5bd",flexShrink:0}}>{r.timestamp?.slice(11,16)||"—"}</div>
+                        <span style={{width:8,height:8,borderRadius:"50%",background:stC(s),display:"inline-block",flexShrink:0,marginTop:4}}/>
+                      </div>
+                    );
+                  })}
+                  {rows.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"#adb5bd",fontSize:12}}>Waiting for data...</div>}
+                </div>
+                {rows.length>feedCount&&(
+                  <button onClick={()=>setFeedCount(c=>c+5)} style={{marginTop:12,padding:"8px 0",borderRadius:6,border:"1px solid #3b7ddd",background:"transparent",color:"#3b7ddd",fontSize:12,fontWeight:600}}>Load more</button>
+                )}
               </div>
             </div>
-            {/* System health */}
-            <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"16px 24px"}}>
-              <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>System Health</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
-                {[
-                  {label:"MQTT Broker",status:connected?"Active":"Inactive",ok:connected},
-                  {label:"Supabase DB",status:"Connected",ok:true},
-                  {label:"ML Engine",status:"Rules v1",ok:true},
-                  {label:"ESP32 Device",status:connected?"Online":"Offline",ok:connected},
-                ].map(({label,status,ok})=>(
-                  <div key={label} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:8,background:ok?"#f0fdf4":"#fef9c3",border:`1px solid ${ok?"#bbf7d0":"#fde68a"}`}}>
-                    <span style={{width:8,height:8,borderRadius:"50%",background:ok?"#22c55e":"#f59e0b",display:"inline-block",flexShrink:0}}/>
-                    <div>
-                      <div style={{fontSize:10,fontWeight:700,color:ok?"#15803d":"#92400e"}}>{status}</div>
-                      <div style={{fontSize:9,color:D.muted2}}>{label}</div>
+
+            {/* Row 3: Donut + Mini chart + Latest alerts */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:18}}>
+              {/* Fault Distribution donut */}
+              <div style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"20px 22px"}}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>Fault Distribution</div>
+                <div style={{display:"flex",alignItems:"center",gap:16}}>
+                  <Donut slices={[{value:normal,color:"#28a745",label:"Normal"},{value:faults,color:"#dc3545",label:"Fault"}]} size={110}/>
+                  <div style={{flex:1}}>
+                    {[{l:"Normal",v:normal,c:"#28a745"},{l:"Faults",v:faults,c:"#dc3545"}].map(({l,v,c})=>(
+                      <div key={l} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                        <span style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#6c757d"}}><span style={{width:8,height:8,borderRadius:"50%",background:c,display:"inline-block"}}/>{l}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:c}}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Weekly Readings mini chart */}
+              <div style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"20px 22px"}}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Weekly Readings</div>
+                <div style={{fontSize:11,color:"#adb5bd",marginBottom:12}}>Vibration trend</div>
+                <Spark data={vibs.slice(-30)} color="#3b7ddd" h={60}/>
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:10}}>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:16,fontWeight:700,color:"#3b7ddd"}}>{avg(vibs)}</div>
+                    <div style={{fontSize:10,color:"#adb5bd"}}>Avg mm/s</div>
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:16,fontWeight:700,color:"#dc3545"}}>{vibs.length?Math.max(...vibs).toFixed(2):"—"}</div>
+                    <div style={{fontSize:10,color:"#adb5bd"}}>Peak mm/s</div>
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:16,fontWeight:700,color:"#28a745"}}>{rows.length}</div>
+                    <div style={{fontSize:10,color:"#adb5bd"}}>Readings</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Latest Alerts */}
+              <div style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"20px 22px"}}>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Latest Alerts</div>
+                {alerts.slice(0,4).map(a=>(
+                  <div key={a.id} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:10}}>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:a.severity==="critical"?"#dc3545":a.severity==="warning"?"#f59e0b":"#3b7ddd",display:"inline-block",flexShrink:0,marginTop:3}}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#212529",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.message||a.type}</div>
+                      <div style={{fontSize:10,color:"#adb5bd"}}>{a.timestamp?.slice(11,16)||"—"}</div>
                     </div>
+                    <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:4,background:a.severity==="critical"?"#fef2f2":a.severity==="warning"?"#fffbeb":"#eff6ff",color:a.severity==="critical"?"#dc3545":a.severity==="warning"?"#d97706":"#3b7ddd",flexShrink:0}}>{a.severity.toUpperCase()}</span>
                   </div>
                 ))}
+                {alerts.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:"#adb5bd",fontSize:12}}>No alerts</div>}
               </div>
             </div>
           </>)}
 
-          {/* ══════════ LIVE DATA ══════════ */}
+          {/* ══ LIVE DATA ══ */}
           {page==="live"&&(<>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
               <div>
                 <div style={{fontSize:15,fontWeight:700}}>Live Sensor Data</div>
-                <div style={{fontSize:12,color:D.muted,marginTop:2}}>Auto-updating via Supabase Realtime · {rows.length} readings</div>
+                <div style={{fontSize:12,color:"#6c757d",marginTop:2}}>Auto-updating via Supabase Realtime · {rows.length} readings</div>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:"#22c55e",padding:"5px 12px",borderRadius:20,background:"#f0fdf4",border:"1px solid #bbf7d0"}}>
-                  <span style={{width:6,height:6,borderRadius:"50%",background:"#22c55e",display:"inline-block",animation:"pulse 1.5s infinite"}}/>REALTIME
-                </span>
-              </div>
+              <span style={{display:"flex",alignItems:"center",gap:6,fontSize:11,fontWeight:600,color:"#22c55e",padding:"5px 14px",borderRadius:20,background:"#f0fdf4",border:"1px solid #bbf7d0"}}>
+                <span style={{width:6,height:6,borderRadius:"50%",background:"#22c55e",display:"inline-block",animation:"pulse 1.5s infinite"}}/>REALTIME
+              </span>
             </div>
-            {/* Live stat cards */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
-              {[
-                {icon:"🌡️",l:"Temperature",v:latest?.temperature?.toFixed(1)??"—",u:"°C",s:latest?st(latest.temperature,TH.temp.w,TH.temp.c):undefined},
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20}}>
+              {[{icon:"🌡️",l:"Temperature",v:latest?.temperature?.toFixed(1)??"—",u:"°C",s:latest?st(latest.temperature,TH.temp.w,TH.temp.c):undefined},
                 {icon:"📳",l:"Vibration",v:latest?.vibration_rms?.toFixed(2)??"—",u:"mm/s",s:latest?st(latest.vibration_rms,TH.vib.w,TH.vib.c):undefined},
                 {icon:"🔊",l:"Sound",v:latest?.sound_db?.toFixed(1)??"—",u:"dB",s:latest?st(latest.sound_db,TH.snd.w,TH.snd.c):undefined},
                 {icon:"🌧️",l:"Humidity",v:latest?.humidity!=null?latest.humidity.toFixed(1):"N/A",u:"%RH",s:latest?.humidity!=null?st(latest.humidity,TH.hum.w,TH.hum.c):undefined},
               ].map(({icon,l,v,u,s})=>(
-                <div key={l} style={{background:D.card,borderRadius:10,border:`1px solid ${s?stColor(s)+"44":D.border}`,padding:"14px 18px",boxShadow:s&&s!=="ok"?`0 0 0 2px ${stColor(s)}22`:undefined}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <span style={{fontSize:18}}>{icon}</span>
-                    {s&&<span style={{fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:10,background:stBg(s),color:stColor(s)}}>{stLabel(s)}</span>}
+                <div key={l} style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"16px 18px",borderLeft:`4px solid ${s?stC(s):"#dee2e6"}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                    <span style={{fontSize:20}}>{icon}</span>
+                    {s&&<span style={{fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:10,background:stBg(s),color:stC(s)}}>{stL(s)}</span>}
                   </div>
-                  <div style={{fontSize:24,fontWeight:800,color:s?stColor(s):D.text}}>{v}<span style={{fontSize:11,color:D.muted,marginLeft:3}}>{u}</span></div>
-                  <div style={{fontSize:10,color:D.muted2,marginTop:2}}>{l}</div>
+                  <div style={{fontSize:22,fontWeight:800,color:s?stC(s):"#212529"}}>{v}<span style={{fontSize:11,color:"#6c757d",marginLeft:3}}>{u}</span></div>
+                  <div style={{fontSize:10,color:"#adb5bd",marginTop:2}}>{l}</div>
                 </div>
               ))}
             </div>
-            {/* Live table */}
-            <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,overflow:"hidden"}}>
-              <div style={{padding:"16px 20px",borderBottom:`1px solid ${D.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",overflow:"hidden"}}>
+              <div style={{padding:"14px 20px",borderBottom:"1px solid #dee2e6",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div style={{fontSize:13,fontWeight:700}}>Sensor Readings</div>
-                <span style={{fontSize:11,color:D.muted}}>{rows.length} total records</span>
+                <span style={{fontSize:11,color:"#6c757d"}}>{rows.length} records</span>
               </div>
-              <div style={{overflowX:"auto",maxHeight:"calc(100vh - 380px)",overflowY:"auto"}}>
+              <div style={{overflowX:"auto",maxHeight:"calc(100vh - 360px)",overflowY:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <thead style={{position:"sticky",top:0,background:"#f8fafc",zIndex:1}}>
-                    <tr>
-                      {["#","Timestamp","Device","Temp °C","Vibration mm/s","Sound dB","Humidity %","Condition","Confidence"].map(h=>(
-                        <th key={h} style={{padding:"10px 14px",textAlign:"left",fontSize:10,fontWeight:700,color:D.muted,textTransform:"uppercase",letterSpacing:.5,borderBottom:`1px solid ${D.border}`,whiteSpace:"nowrap"}}>{h}</th>
-                      ))}
-                    </tr>
+                  <thead style={{position:"sticky",top:0,background:"#f8f9fa",zIndex:1}}>
+                    <tr>{["#","Time","Device","Temp °C","Vibration","Sound dB","Humidity","Condition","Conf"].map(h=>(
+                      <th key={h} style={{padding:"10px 14px",textAlign:"left",fontSize:10,fontWeight:700,color:"#6c757d",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid #dee2e6",whiteSpace:"nowrap"}}>{h}</th>
+                    ))}</tr>
                   </thead>
                   <tbody>
-                    {rows.slice(0,50).map((r,i)=>{
+                    {rows.slice(0,60).map((r,i)=>{
                       const p=r.ml_predictions?.[0];
+                      const ts=st(r.temperature,TH.temp.w,TH.temp.c);
                       const vs=st(r.vibration_rms,TH.vib.w,TH.vib.c);
                       const ss=st(r.sound_db,TH.snd.w,TH.snd.c);
-                      const ts=st(r.temperature,TH.temp.w,TH.temp.c);
-                      const rowBg=vs==="crit"||ss==="crit"||ts==="crit"?"#fff5f5":vs==="warn"||ss==="warn"||ts==="warn"?"#fffbeb":"#fff";
-                      return (
-                        <tr key={r.id} style={{background:i%2===0?rowBg:"#fafbfc",borderBottom:`1px solid #f1f5f9`}}>
-                          <td style={{padding:"9px 14px",color:D.muted2,fontSize:11}}>{r.id}</td>
-                          <td style={{padding:"9px 14px",fontFamily:"monospace",fontSize:11,color:D.muted}}>{r.timestamp?.slice(11,19)||"—"}</td>
-                          <td style={{padding:"9px 14px",fontWeight:600}}>{r.device_id}</td>
-                          <td style={{padding:"9px 14px",fontWeight:700,color:stColor(ts)}}>{r.temperature?.toFixed(1)}</td>
-                          <td style={{padding:"9px 14px",fontWeight:700,color:stColor(vs)}}>{r.vibration_rms?.toFixed(3)}</td>
-                          <td style={{padding:"9px 14px",fontWeight:700,color:stColor(ss)}}>{r.sound_db?.toFixed(1)}</td>
-                          <td style={{padding:"9px 14px",color:D.muted}}>{r.humidity!=null?r.humidity.toFixed(1):"—"}</td>
-                          <td style={{padding:"9px 14px"}}>{p?<span style={{padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:p.condition==="normal"?"#f0fdf4":"#fef2f2",color:p.condition==="normal"?"#16a34a":"#dc2626"}}>{p.condition.replace(/_/g," ")}</span>:"—"}</td>
-                          <td style={{padding:"9px 14px",color:D.muted}}>{p?`${(p.confidence*100).toFixed(0)}%`:"—"}</td>
+                      return(
+                        <tr key={r.id} style={{background:i%2===0?"#fff":"#f8f9fa",borderBottom:"1px solid #f1f5f9"}}>
+                          <td style={{padding:"8px 14px",color:"#adb5bd",fontSize:11}}>{r.id}</td>
+                          <td style={{padding:"8px 14px",fontFamily:"monospace",fontSize:11,color:"#6c757d"}}>{r.timestamp?.slice(11,19)||"—"}</td>
+                          <td style={{padding:"8px 14px",fontWeight:600}}>{r.device_id}</td>
+                          <td style={{padding:"8px 14px",fontWeight:700,color:stC(ts)}}>{r.temperature?.toFixed(1)}</td>
+                          <td style={{padding:"8px 14px",fontWeight:700,color:stC(vs)}}>{r.vibration_rms?.toFixed(3)}</td>
+                          <td style={{padding:"8px 14px",fontWeight:700,color:stC(ss)}}>{r.sound_db?.toFixed(1)}</td>
+                          <td style={{padding:"8px 14px",color:"#6c757d"}}>{r.humidity!=null?r.humidity.toFixed(1):"—"}</td>
+                          <td style={{padding:"8px 14px"}}>{p?<span style={{padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:p.condition==="normal"?"#f0fdf4":"#fef2f2",color:p.condition==="normal"?"#16a34a":"#dc2626"}}>{p.condition.replace(/_/g," ")}</span>:"—"}</td>
+                          <td style={{padding:"8px 14px",color:"#6c757d"}}>{p?`${(p.confidence*100).toFixed(0)}%`:"—"}</td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
-                {rows.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:D.muted2}}>No data — waiting for ESP32...</div>}
+                {rows.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:"#adb5bd"}}>No data — waiting for ESP32...</div>}
               </div>
             </div>
           </>)}
 
-          {/* ══════════ ANALYTICS ══════════ */}
+          {/* ══ ANALYTICS ══ */}
           {page==="analytics"&&(<>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-              <div style={{fontSize:15,fontWeight:700}}>Analytics</div>
-              <div style={{display:"flex",gap:6}}>
-                {["1h","24h","7d"].map(f=>(
-                  <button key={f} onClick={()=>setFilter(f)} style={{padding:"5px 14px",borderRadius:6,border:`1px solid ${filter===f?D.blue:D.border}`,background:filter===f?D.blue:"#fff",color:filter===f?"#fff":D.muted,cursor:"pointer",fontSize:12,fontWeight:filter===f?600:400}}>
-                    {f==="1h"?"Last 1h":f==="24h"?"Last 24h":"Last 7d"}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/* Stats row */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:20}}>Analytics</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18}}>
               {[
-                {l:"Avg Temperature",v:avg(filteredRows.map(r=>r.temperature)),u:"°C",c:"#f59e0b"},
-                {l:"Avg Vibration",v:avg(filteredRows.map(r=>r.vibration_rms)),u:"mm/s",c:"#3b82f6"},
-                {l:"Avg Sound",v:avg(filteredRows.map(r=>r.sound_db)),u:"dB",c:"#8b5cf6"},
-                {l:"Fault Events",v:filteredRows.filter(r=>r.ml_predictions?.[0]?.condition!=="normal").length.toString(),u:"",c:"#ef4444"},
-              ].map(({l,v,u,c})=>(
-                <div key={l} style={{background:D.card,borderRadius:10,border:`1px solid ${D.border}`,padding:"16px 18px"}}>
-                  <div style={{fontSize:10,fontWeight:700,color:D.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:6}}>{l}</div>
-                  <div style={{fontSize:24,fontWeight:800,color:c}}>{v}<span style={{fontSize:11,color:D.muted,marginLeft:3}}>{u}</span></div>
-                </div>
-              ))}
-            </div>
-            {/* Line charts */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
-              {[
-                {title:"Temperature Over Time (°C)",data:filteredRows.map(r=>r.temperature).reverse(),color:"#f59e0b",warn:70},
-                {title:"Humidity Over Time (%RH)",data:filteredRows.filter(r=>r.humidity!=null).map(r=>r.humidity as number).reverse(),color:"#06b6d4",warn:60},
-              ].map(({title,data,color,warn})=>(
-                <div key={title} style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"20px 24px"}}>
-                  <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>{title}</div>
-                  <div style={{fontSize:11,color:D.muted2,marginBottom:12}}>
-                    Min: {data.length?Math.min(...data).toFixed(1):"—"} · Max: {data.length?Math.max(...data).toFixed(1):"—"} · Avg: {avg(data)}
-                    <span style={{marginLeft:8,color:"#f59e0b"}}>— Warn: {warn}</span>
+                {title:"Temperature Trend",data:temps.slice(-40),color:"#f59e0b",unit:"°C"},
+                {title:"Vibration RMS Trend",data:vibs.slice(-40),color:"#3b7ddd",unit:"mm/s"},
+                {title:"Sound Level Trend",data:snds.slice(-40),color:"#7c3aed",unit:"dB"},
+                {title:"Fault Rate (bar)",data:barData.buckets,color:"#dc3545",unit:"mm/s",bar:true,labels:barData.labels},
+              ].map(({title,data,color,unit,bar,labels})=>(
+                <div key={title} style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"20px 22px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+                    <div style={{fontSize:13,fontWeight:700}}>{title}</div>
+                    <span style={{fontSize:11,color:"#6c757d"}}>{unit}</span>
                   </div>
-                  <LineChart series={[{data:data.slice(-60),color,label:title}]} h={120}/>
+                  {bar?<BarChart data={data} color={color} labels={labels}/>:<Spark data={data} color={color} h={100}/>}
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:12,fontSize:11,color:"#6c757d"}}>
+                    <span>Min: <b style={{color:"#212529"}}>{data.length?Math.min(...data).toFixed(2):"—"}</b></span>
+                    <span>Avg: <b style={{color:"#212529"}}>{avg(data)}</b></span>
+                    <span>Max: <b style={{color:"#212529"}}>{data.length?Math.max(...data).toFixed(2):"—"}</b></span>
+                  </div>
                 </div>
               ))}
-            </div>
-            {/* Bar + spike charts */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-              <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"20px 24px"}}>
-                <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Sound Intensity Comparison</div>
-                <div style={{fontSize:11,color:D.muted2,marginBottom:12}}>Last {Math.min(filteredRows.length,20)} readings</div>
-                <BarChart data={filteredRows.slice(0,20).map(r=>r.sound_db).reverse()} color="#8b5cf6"/>
-              </div>
-              <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"20px 24px"}}>
-                <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Vibration Spike Detection</div>
-                <div style={{fontSize:11,color:D.muted2,marginBottom:12}}>
-                  Spikes &gt;{TH.vib.w} mm/s: <span style={{color:"#f59e0b",fontWeight:700}}>{filteredRows.filter(r=>r.vibration_rms>TH.vib.w).length}</span> · 
-                  Critical &gt;{TH.vib.c}: <span style={{color:"#ef4444",fontWeight:700}}>{filteredRows.filter(r=>r.vibration_rms>TH.vib.c).length}</span>
-                </div>
-                <BarChart data={filteredRows.slice(0,20).map(r=>r.vibration_rms).reverse()} color="#3b82f6"/>
-              </div>
             </div>
           </>)}
 
-          {/* ══════════ ALERTS ══════════ */}
+          {/* ══ ALERTS ══ */}
           {page==="alerts"&&(<>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-              <div style={{fontSize:15,fontWeight:700}}>Alerts & Warnings</div>
-              <button onClick={()=>setAlerts(p=>p.map(a=>({...a,acknowledged:true})))} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${D.border}`,background:"#fff",color:D.muted,cursor:"pointer",fontSize:12}}>✓ Ack All</button>
+              <div style={{fontSize:15,fontWeight:700}}>Alerts</div>
+              <div style={{display:"flex",gap:8,fontSize:12}}>
+                <span style={{padding:"4px 12px",borderRadius:20,background:"#fef2f2",color:"#dc3545",fontWeight:700,border:"1px solid #fecaca"}}>{crit} Critical</span>
+                <span style={{padding:"4px 12px",borderRadius:20,background:"#fffbeb",color:"#d97706",fontWeight:700,border:"1px solid #fde68a"}}>{warn} Warning</span>
+              </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
-              {[
-                {l:"Critical",v:crit,c:"#ef4444",bg:"#fef2f2",bd:"#fecaca"},
-                {l:"Warning",v:warn,c:"#d97706",bg:"#fffbeb",bd:"#fde68a"},
-                {l:"Info",v:alerts.filter(a=>a.severity==="info").length,c:"#2563eb",bg:"#eff6ff",bd:"#bfdbfe"},
-                {l:"Acknowledged",v:alerts.filter(a=>a.acknowledged).length,c:"#16a34a",bg:"#f0fdf4",bd:"#bbf7d0"},
-              ].map(({l,v,c,bg,bd})=>(
-                <div key={l} style={{background:bg,borderRadius:10,border:`1px solid ${bd}`,padding:"16px 20px"}}>
-                  <div style={{fontSize:10,fontWeight:700,color:c,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{l}</div>
-                  <div style={{fontSize:28,fontWeight:800,color:c}}>{v}</div>
+            <div style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",overflow:"hidden"}}>
+              {alerts.length===0&&<div style={{textAlign:"center",padding:"60px 0",color:"#adb5bd",fontSize:14}}>✓ No alerts — system healthy</div>}
+              {alerts.map((a,i)=>(
+                <div key={a.id} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 20px",borderBottom:"1px solid #f1f5f9",background:a.acknowledged?"#f8f9fa":"#fff",opacity:a.acknowledged?.7:1}}>
+                  <span style={{width:10,height:10,borderRadius:"50%",background:a.severity==="critical"?"#dc3545":a.severity==="warning"?"#f59e0b":"#3b7ddd",display:"inline-block",flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"#212529"}}>{a.message||a.type||"Alert"}</div>
+                    <div style={{fontSize:11,color:"#adb5bd",marginTop:2}}>{a.timestamp?.slice(0,19).replace("T"," ")||"—"}</div>
+                  </div>
+                  <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:a.severity==="critical"?"#fef2f2":a.severity==="warning"?"#fffbeb":"#eff6ff",color:a.severity==="critical"?"#dc3545":a.severity==="warning"?"#d97706":"#3b7ddd",flexShrink:0}}>{a.severity.toUpperCase()}</span>
+                  {!a.acknowledged&&<button onClick={()=>ackAlert(a.id)} style={{padding:"5px 12px",borderRadius:6,border:"1px solid #dee2e6",background:"#fff",color:"#6c757d",fontSize:11,flexShrink:0}}>Ack</button>}
+                  {a.acknowledged&&<span style={{fontSize:10,color:"#adb5bd",flexShrink:0}}>✓ Acked</span>}
                 </div>
               ))}
             </div>
-            <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,overflow:"hidden"}}>
-              <div style={{padding:"16px 20px",borderBottom:`1px solid ${D.border}`,fontSize:13,fontWeight:700}}>Alert History</div>
-              <div style={{maxHeight:"calc(100vh - 380px)",overflowY:"auto"}}>
-                {alerts.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:D.muted2}}>No alerts recorded</div>}
-                {alerts.map(a=>(
-                  <div key={a.id} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 20px",borderBottom:`1px solid #f8fafc`,background:a.acknowledged?"#fafbfc":"#fff",opacity:a.acknowledged?.6:1}}>
-                    <span style={{fontSize:20,flexShrink:0}}>{a.severity==="critical"?"🚨":a.severity==="warning"?"⚠️":"ℹ️"}</span>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontWeight:500,color:D.text,marginBottom:2}}>{a.message}</div>
-                      <div style={{fontSize:11,color:D.muted2,display:"flex",gap:12}}>
-                        <span>{new Date(a.timestamp).toLocaleString()}</span>
-                        <span style={{fontWeight:600,color:D.muted}}>{a.type?.replace(/_/g," ")}</span>
-                      </div>
-                    </div>
-                    <span style={{padding:"3px 10px",borderRadius:4,fontSize:10,fontWeight:700,background:a.severity==="critical"?"#fee2e2":a.severity==="warning"?"#fef3c7":"#dbeafe",color:a.severity==="critical"?"#dc2626":a.severity==="warning"?"#d97706":"#2563eb",flexShrink:0}}>
-                      {a.severity==="critical"?"HIGH":a.severity==="warning"?"MEDIUM":"LOW"}
-                    </span>
-                    {!a.acknowledged&&<button onClick={()=>ackAlert(a.id)} style={{padding:"4px 10px",borderRadius:4,border:`1px solid ${D.border}`,background:"#fff",color:D.muted,cursor:"pointer",fontSize:11,flexShrink:0}}>Ack</button>}
-                  </div>
-                ))}
-              </div>
-            </div>
           </>)}
 
-          {/* ══════════ DEVICES ══════════ */}
+          {/* ══ DEVICES ══ */}
           {page==="devices"&&(<>
-            <div style={{fontSize:15,fontWeight:700,marginBottom:20}}>Connected Devices</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20}}>
-              {(devices.length?devices:["ESP32_MOTOR_01"]).map(dev=>{
+            <div style={{fontSize:15,fontWeight:700,marginBottom:20}}>Devices</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16}}>
+              {devices.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"60px 0",color:"#adb5bd",fontSize:14}}>No devices detected</div>}
+              {devices.map(dev=>{
                 const devRows=rows.filter(r=>r.device_id===dev);
                 const last=devRows[0];
-                const online=last&&(Date.now()-new Date(last.timestamp).getTime())<30000;
-                return (
-                  <div key={dev} style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"20px 22px"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-                      <div style={{width:42,height:42,borderRadius:10,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📡</div>
+                const s=last?st(last.vibration_rms,TH.vib.w,TH.vib.c):"ok";
+                return(
+                  <div key={dev} style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"20px 22px",borderTop:`4px solid ${stC(s)}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                      <div style={{width:44,height:44,borderRadius:"50%",background:"rgba(59,125,221,.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>⚙️</div>
                       <div>
-                        <div style={{fontWeight:700,fontSize:13}}>{dev}</div>
-                        <div style={{fontSize:10,color:D.muted2}}>ESP32 Motor Node</div>
+                        <div style={{fontSize:14,fontWeight:700,color:"#212529"}}>{dev}</div>
+                        <div style={{fontSize:11,color:"#adb5bd"}}>{devRows.length} readings</div>
                       </div>
-                      <span style={{marginLeft:"auto",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700,background:online?"#f0fdf4":"#f8fafc",color:online?"#16a34a":"#94a3b8",border:`1px solid ${online?"#bbf7d0":"#e2e8f0"}`}}>
-                        {online?"● Online":"○ Offline"}
-                      </span>
+                      <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:20,background:stBg(s),color:stC(s)}}>{stL(s)}</span>
                     </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      {[["Last Seen",last?.timestamp?.slice(11,19)||"—"],["Readings",devRows.length.toString()],["Firmware","v2.1.0"],["Protocol","MQTT TLS"]].map(([k,v])=>(
-                        <div key={k} style={{background:"#f8fafc",borderRadius:6,padding:"8px 10px"}}>
-                          <div style={{fontSize:9,color:D.muted2,textTransform:"uppercase",letterSpacing:.4}}>{k}</div>
-                          <div style={{fontSize:12,fontWeight:600,color:D.text,marginTop:1}}>{v}</div>
-                        </div>
-                      ))}
-                    </div>
+                    {last&&(
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        {[{l:"Temperature",v:`${last.temperature?.toFixed(1)}°C`},{l:"Vibration",v:`${last.vibration_rms?.toFixed(2)} mm/s`},{l:"Sound",v:`${last.sound_db?.toFixed(1)} dB`},{l:"Last seen",v:last.timestamp?.slice(11,19)||"—"}].map(({l,v})=>(
+                          <div key={l} style={{padding:"8px 10px",borderRadius:6,background:"#f8f9fa"}}>
+                            <div style={{fontSize:10,color:"#adb5bd"}}>{l}</div>
+                            <div style={{fontSize:13,fontWeight:700,color:"#212529",marginTop:2}}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
-              {/* Add device placeholder */}
-              <div style={{background:"#f8fafc",borderRadius:12,border:`2px dashed ${D.border}`,padding:"20px 22px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer",minHeight:160}}>
-                <div style={{fontSize:28,color:D.muted2}}>+</div>
-                <div style={{fontSize:12,color:D.muted2,fontWeight:500}}>Add New Device</div>
-                <div style={{fontSize:10,color:D.muted2}}>esp32-2 (future)</div>
-              </div>
             </div>
           </>)}
 
-          {/* ══════════ SETTINGS ══════════ */}
+          {/* ══ SETTINGS ══ */}
           {page==="settings"&&(<>
             <div style={{fontSize:15,fontWeight:700,marginBottom:20}}>Settings</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-              <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"22px 24px"}}>
-                <div style={{fontSize:13,fontWeight:700,marginBottom:16,display:"flex",alignItems:"center",gap:8}}><span>📡</span> MQTT Broker</div>
-                {[["Host","4f01b41f89ae4b7f86db975f943cf758.s1.eu.hivemq.cloud"],["Port","8883 (TLS)"],["Username","hivemq.webclient.1776266038908"],["Status",connected?"Connected":"Disconnected"],["Protocol","MQTT over TLS"]].map(([k,v])=>(
-                  <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:`1px solid #f1f5f9`,fontSize:12}}>
-                    <span style={{color:D.muted,fontWeight:500}}>{k}</span>
-                    <span style={{fontWeight:600,color:k==="Status"?(connected?"#16a34a":"#dc2626"):D.text,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"right"}}>{v}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"22px 24px"}}>
-                <div style={{fontSize:13,fontWeight:700,marginBottom:16,display:"flex",alignItems:"center",gap:8}}><span>🗄️</span> Supabase Database</div>
-                {[["Project ID","xflnuafbijrqhkbiukvk"],["URL","xflnuafbijrqhkbiukvk.supabase.co"],["Realtime","Enabled"],["Tables","sensor_readings, alerts, ml_predictions"],["Status","Active"]].map(([k,v])=>(
-                  <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:`1px solid #f1f5f9`,fontSize:12}}>
-                    <span style={{color:D.muted,fontWeight:500}}>{k}</span>
-                    <span style={{fontWeight:600,color:k==="Status"?"#16a34a":D.text,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"right"}}>{v}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"22px 24px"}}>
-                <div style={{fontSize:13,fontWeight:700,marginBottom:16,display:"flex",alignItems:"center",gap:8}}><span>⚠️</span> Alert Thresholds (ISO 10816)</div>
-                {[["Temperature Warning","70°C"],["Temperature Critical","85°C"],["Vibration Warning","2.8 mm/s"],["Vibration Critical","4.5 mm/s"],["Sound Warning","70 dB"],["Sound Critical","85 dB"],["Humidity Critical","70 %RH"]].map(([k,v])=>(
-                  <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid #f1f5f9`,fontSize:12}}>
-                    <span style={{color:D.muted}}>{k}</span>
-                    <span style={{fontWeight:700,color:D.text,background:"#f1f5f9",padding:"2px 10px",borderRadius:4}}>{v}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{background:D.card,borderRadius:12,border:`1px solid ${D.border}`,padding:"22px 24px"}}>
-                <div style={{fontSize:13,fontWeight:700,marginBottom:16,display:"flex",alignItems:"center",gap:8}}><span>🤖</span> ML Engine</div>
-                {[["Model","RandomForest v1.0"],["Features","6 (temp, vib x/y/z, sound)"],["Classes","5 fault conditions"],["Accuracy","94.2%"],["F1 Score","92.1%"],["Mode","Rule-based (inline)"]].map(([k,v])=>(
-                  <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:`1px solid #f1f5f9`,fontSize:12}}>
-                    <span style={{color:D.muted}}>{k}</span>
-                    <span style={{fontWeight:600,color:D.text}}>{v}</span>
-                  </div>
-                ))}
-              </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18}}>
+              {[
+                {title:"Supabase Connection",items:[{l:"URL",v:SB_URL.replace("https://","").split(".")[0]+"..."},{l:"Status",v:"Connected ✓"},{l:"Realtime",v:"Enabled"}]},
+                {title:"Alert Thresholds",items:[{l:"Temp Warning",v:`${TH.temp.w}°C`},{l:"Temp Critical",v:`${TH.temp.c}°C`},{l:"Vibration Warning",v:`${TH.vib.w} mm/s`},{l:"Vibration Critical",v:`${TH.vib.c} mm/s`}]},
+                {title:"ML Configuration",items:[{l:"Engine",v:"Rules v1"},{l:"Conditions",v:"5 classes"},{l:"Predictions",v:`${rows.filter(r=>r.ml_predictions?.length).length} total`}]},
+                {title:"System Info",items:[{l:"Total Readings",v:rows.length.toString()},{l:"Active Devices",v:devices.length.toString()},{l:"Unacked Alerts",v:(crit+warn).toString()},{l:"Fault Readings",v:faults.toString()}]},
+              ].map(({title,items})=>(
+                <div key={title} style={{background:"#fff",borderRadius:8,boxShadow:"0 1px 4px rgba(0,0,0,.08)",padding:"20px 22px"}}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:14,paddingBottom:10,borderBottom:"1px solid #f1f5f9"}}>{title}</div>
+                  {items.map(({l,v})=>(
+                    <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #f8f9fa"}}>
+                      <span style={{fontSize:12,color:"#6c757d"}}>{l}</span>
+                      <span style={{fontSize:12,fontWeight:600,color:"#212529"}}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           </>)}
 
